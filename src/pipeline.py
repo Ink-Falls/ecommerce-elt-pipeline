@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import pandas as pd
 import boto3
@@ -30,7 +30,7 @@ def save_as_parquet(data: list, entity_name: str, output_dir: str = "data") -> s
     df = pd.DataFrame(data)
 
     # Add ingestion timestamp for audit tracking
-    df["_ingested_at"] = datetime.utcnow()
+    df["_ingested_at"] = datetime.now(timezone.utc)
 
     file_path = os.path.join(output_dir, f"{entity_name}.parquet")
     df.to_parquet(file_path, engine="pyarrow", index=False)
@@ -63,7 +63,7 @@ def run_pipeline():
         # 2. Upload to S3 if a bucket is specified
         if S3_BUCKET:
             # We partition by date: bronze/<endpoint>/year=YYYY/month=MM/
-            today = datetime.utcnow()
+            today = datetime.now(timezone.utc)
             s3_key = (
                 f"bronze/{endpoint}/"
                 f"year={today.year}/month={today.month:02d}/"
