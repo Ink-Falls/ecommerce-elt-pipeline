@@ -1,0 +1,83 @@
+name: CI/CD E-Commerce ELT Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Allows manual triggering from GitHub UI
+
+# REQUIRED FOR OIDC: Allows GitHub to request temporary AWS credentials
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: ecommerce-pipeline
+  ECS_CLUSTER: ecommerce-cluster
+  ECS_TASK_DEFINITION: ecommerce-ingestion-task
+
+jobs:
+  ci-testing:
+    name: Code Quality & Data Contracts Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest requests-mock ruff
+
+      - name: Gate 1 - Linting
+        run: |
+          ruff check .
+
+      - name: Gate 2 - Data Contracts & Unit Tests
+        run: |
+          pytest tests/
+
+  cd-deployment:
+    name: Build, Push & Run on AWS
+    needs: ci-testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Docker Image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Trigger ECS Fargate Task
+        run: |
+          echo "Fetching default VPC networking..."
+          SUBNET=$(aws ec2 describe-subnets --filters "Name=default-for-az,Values=true" --query "Subnets[0].SubnetId" --output text)
+          SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=default" --query "SecurityGroups[0].GroupId" --output text)
+
+          echo "Running Fargate Task on Subnet: $SUBNET, SG: $SG..."
+          aws ecs run-task \
+            --cluster $ECS_CLUSTER \
+            --task-definition $ECS_TASK_DEFINITION \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}"
