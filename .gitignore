@@ -3,4 +3,4 @@ __pycache__/
 *.parquet
 data/
 .env
-.DS_Store
+.DS_Storedocker build -t ecommerce-pipeline:v1 .
