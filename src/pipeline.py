@@ -19,7 +19,13 @@ def fetch_api_data(endpoint: str) -> list:
     """Fetch raw JSON from FakeStore API."""
     url = f"{BASE_URL}/{endpoint}"
     print(f"Fetching: {url}")
-    response = requests.get(url, timeout=15)
+    
+    # Custom headers to bypass Cloudflare bot blocking on cloud datacenters
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    response = requests.get(url, headers=headers, timeout=15)
     response.raise_for_status()
     return response.json()
 
